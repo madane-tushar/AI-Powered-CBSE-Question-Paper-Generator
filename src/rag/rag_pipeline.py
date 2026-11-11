@@ -1531,6 +1531,12 @@ def _clean_llm_answer(text):
         r"(=\s*)(\d+\s*\u00d7\s*\d+)\s*\n+\s*(\d+)\s*(?=\n|$)",
         lambda m: f"{m.group(1)}({m.group(2)})/{m.group(3)}", t,
     )
+    # numerator alone on a line, denominator "(1 + 5) x 240" on the next -> "1/(1 + 5) x 240"
+    t = re.sub(
+        r"(?m)^[ \t]*(\d+)[ \t]*\n+[ \t]*(\(\d[^\n]*\)[ \t]*\u00d7[^\n]*)$",
+        lambda m: f"{m.group(1)}/{m.group(2)}", t,
+    )
+    t = re.sub(r"(\bis|=)[ \t]*\n+[ \t]*(\d+/\()", lambda m: f"{m.group(1)} {m.group(2)}", t)
     # "15 x 2 / 3 = / 10" -> "15 x 2/3 = 10"
     t = re.sub(
         r"(\d+)\s*\u00d7\s*(\d+)\s*\n+\s*(\d+)\s*=\s*\n*\s*(\d+)",
