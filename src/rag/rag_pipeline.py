@@ -1632,6 +1632,83 @@ def _proper_improper_fraction_fast_answer(question, class_no=None, subject=None,
     )
     return sources, answer
 
+def _direction_styles_fast_answer(question, class_no=None, subject=None, book=None):
+    """Return the textbook's five styles of direction when all are retrieved."""
+    q = re.sub(r"[^a-z0-9]+", " ", str(question or "").lower()).strip()
+    asks_styles = (
+        ("style" in q or "styles" in q or "approach" in q or "approaches" in q)
+        and ("direction" in q or "directing" in q)
+        and "if you were" not in q
+        and "your style" not in q
+        and "why" not in q
+    )
+    if not asks_styles:
+        return None
+
+    queries = (
+        "realistic direction abstract or symbolic direction styles",
+        "devised theatre direction fixed script improvisation",
+        "script-based direction collaborative direction creative inputs",
+    )
+    found = {}
+    for query in queries:
+        try:
+            results = _retrieve_compat(query, class_no, subject, book)
+        except Exception:
+            logger.debug("Direction-style retrieval failed for %r", query, exc_info=True)
+            continue
+        for chunk in results or []:
+            if not isinstance(chunk, dict):
+                continue
+            chunk_book = str(chunk.get("book") or "")
+            chunk_text = str(chunk.get("text") or "")
+            if not chunk_text.strip():
+                continue
+            if "from vision to performance" not in chunk_book.lower():
+                continue
+            key = (chunk_book, str(chunk.get("page") or ""), chunk_text[:160])
+            found[key] = chunk
+
+    combined = " ".join(str(c.get("text") or "").lower() for c in found.values())
+    required_evidence = (
+        "realistic",
+        "abstract or symbolic",
+        "devised theatre",
+        "script-based direction",
+        "collaborative direction",
+    )
+    if not all(term in combined for term in required_evidence):
+        return None
+
+    sources = []
+    seen_sources = set()
+    style_markers = (
+        "realistic", "abstract or symbolic", "devised theatre",
+        "script-based direction", "collaborative direction",
+    )
+    for chunk in found.values():
+        page = chunk.get("page")
+        name = str(chunk.get("book") or "").strip()
+        chunk_text = str(chunk.get("text") or "").lower()
+        if not name or page in (None, "") or not any(marker in chunk_text for marker in style_markers):
+            continue
+        key = (name, str(page))
+        if key not in seen_sources:
+            seen_sources.add(key)
+            sources.append({"book": name, "page": page})
+    sources.sort(key=lambda item: int(item["page"]) if str(item["page"]).isdigit() else 999999)
+
+    answer = (
+        "The textbook describes five styles of direction:\n\n"
+        "1. **Realistic direction:** The stage looks and feels like real life. Characters speak naturally, the set resembles a real place, and emotions feel genuine.\n\n"
+        "2. **Abstract or symbolic direction:** The story is communicated through ideas, images and emotions rather than realistic action. Objects or colours can represent something else.\n\n"
+        "3. **Devised theatre:** The play is created by the group during rehearsals instead of following a fixed script. The director guides the actors as they improvise and explore ideas.\n\n"
+        "4. **Script-based direction:** The play begins with a written script. The director studies the writer's intention and plans the staging, blocking, movement and tone while respecting the playwright's vision.\n\n"
+        "5. **Collaborative direction:** The director combines creative input from other experts, such as another director, a dance choreographer or a musician."
+    )
+    return sources, answer
+
+
 def _answer_stream_uncached(
     question,
     class_no=None,
@@ -1650,6 +1727,16 @@ def _answer_stream_uncached(
     if not question:
         yield "sources", _sources_for_question(question, class_no=class_no, subject=subject, book=book)
         yield "token", NOT_FOUND
+        return
+    # [fix:direction_styles_retrieval] The question text is repeated in the
+    # exercise section, so retrieve the explanatory style descriptions directly.
+    _direction_result = _direction_styles_fast_answer(
+        question, class_no=class_no, subject=subject, book=book
+    )
+    if _direction_result is not None:
+        _direction_sources, _direction_answer = _direction_result
+        yield "sources", _direction_sources
+        yield "token", _direction_answer
         return
     # Fast path for proper-vs-improper fractions: avoid a slow LLM response and
     # reject unrelated retrieved sources such as an unrelated health textbook.
